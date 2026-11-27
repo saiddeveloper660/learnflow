@@ -1,0 +1,184 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.userId == userId &&
+        data.displayName is string && data.displayName.size() <= 80 &&
+        data.email is string && data.email.size() <= 120 &&
+        (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 500));
+    }
+
+    function isValidLearningItem(data, userId) {
+      return data.userId == userId &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.details is string && data.details.size() <= 2000 &&
+        data.category in ['TO_LEARN', 'LEARNED', 'FUTURE_NEEDS', 'NOT_CURRENTLY_USEFUL'] &&
+        data.learnedSource in ['NONE', 'FROM_TO_LEARN', 'MANUAL'] &&
+        (!('reminderEpochMs' in data) || (data.reminderEpochMs is int && data.reminderEpochMs >= 0)) &&
+        (!('ringtoneName' in data) || (data.ringtoneName is string && data.ringtoneName.size() <= 120)) &&
+        (!('ringtoneUri' in data) || (data.ringtoneUri is string && data.ringtoneUri.size() <= 500)) &&
+        (!('completedEpochMs' in data) || (data.completedEpochMs is int && data.completedEpochMs >= 0));
+    }
+
+    function isValidNoteCategory(data, userId) {
+      return data.userId == userId &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 60 &&
+        data.colorArgb is int &&
+        data.iconName is string && data.iconName.size() >= 1 && data.iconName.size() <= 40;
+    }
+
+    function isValidNoteItem(data, userId) {
+      return data.userId == userId &&
+        data.categoryId is string && data.categoryId.size() >= 1 && data.categoryId.size() <= 128 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.content is string && data.content.size() <= 10000 &&
+        data.colorArgb is int &&
+        data.photoNames is list && data.photoNames.size() <= 10 &&
+        (data.photoNames.size() == 0 || data.photoNames[0] is string);
+    }
+
+    function isValidHistoryEntry(data, userId) {
+      return data.userId == userId &&
+        data.actionType in ['ADDED_TO_LEARN', 'MARKED_LEARNED', 'ADDED_MANUAL_LEARNED', 'MOVED_CATEGORY', 'REMINDER_SET', 'NOTE_CREATED'] &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.subtitle is string && data.subtitle.size() <= 300 &&
+        data.occurredAtMs is int && data.occurredAtMs >= 0;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        incoming().keys().hasAll(['userId', 'displayName', 'email', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['userId', 'displayName', 'email', 'photoUrl', 'createdAt', 'updatedAt']) &&
+        isValidTimestamp(incoming().createdAt) &&
+        isValidTimestamp(incoming().updatedAt) &&
+        isValidUserProfile(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+        isValidId(userId) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        isValidTimestamp(incoming().updatedAt) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoUrl', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /learning_items/{itemId} {
+        allow get: if isOwner(userId) && isValidId(itemId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(itemId) &&
+          incoming().keys().hasAll(['userId', 'title', 'details', 'category', 'learnedSource', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['userId', 'title', 'details', 'category', 'learnedSource', 'reminderEpochMs', 'ringtoneName', 'ringtoneUri', 'completedEpochMs', 'createdAt', 'updatedAt']) &&
+          isValidTimestamp(incoming().createdAt) &&
+          isValidTimestamp(incoming().updatedAt) &&
+          isValidLearningItem(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(itemId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          isValidTimestamp(incoming().updatedAt) &&
+          isValidLearningItem(incoming(), userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'details', 'category', 'learnedSource', 'reminderEpochMs', 'ringtoneName', 'ringtoneUri', 'completedEpochMs', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(itemId);
+      }
+
+      match /note_categories/{categoryId} {
+        allow get: if isOwner(userId) && isValidId(categoryId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(categoryId) &&
+          incoming().keys().hasAll(['userId', 'name', 'colorArgb', 'iconName', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['userId', 'name', 'colorArgb', 'iconName', 'createdAt', 'updatedAt']) &&
+          isValidTimestamp(incoming().createdAt) &&
+          isValidTimestamp(incoming().updatedAt) &&
+          isValidNoteCategory(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(categoryId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          isValidTimestamp(incoming().updatedAt) &&
+          isValidNoteCategory(incoming(), userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'colorArgb', 'iconName', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(categoryId);
+      }
+
+      match /notes/{noteId} {
+        allow get: if isOwner(userId) && isValidId(noteId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(noteId) &&
+          incoming().keys().hasAll(['userId', 'categoryId', 'title', 'content', 'colorArgb', 'photoNames', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['userId', 'categoryId', 'title', 'content', 'colorArgb', 'photoNames', 'createdAt', 'updatedAt']) &&
+          isValidTimestamp(incoming().createdAt) &&
+          isValidTimestamp(incoming().updatedAt) &&
+          isValidNoteItem(incoming(), userId);
+
+        allow update: if isOwner(userId) &&
+          isValidId(noteId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          isValidTimestamp(incoming().updatedAt) &&
+          isValidNoteItem(incoming(), userId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['categoryId', 'title', 'content', 'colorArgb', 'photoNames', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(noteId);
+      }
+
+      match /history/{eventId} {
+        allow get: if isOwner(userId) && isValidId(eventId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidId(eventId) &&
+          incoming().keys().hasAll(['userId', 'actionType', 'title', 'subtitle', 'occurredAtMs', 'createdAt']) &&
+          incoming().keys().hasOnly(['userId', 'actionType', 'title', 'subtitle', 'occurredAtMs', 'createdAt']) &&
+          isValidTimestamp(incoming().createdAt) &&
+          isValidHistoryEntry(incoming(), userId);
+
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(eventId);
+      }
+    }
+  }
+}

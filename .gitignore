@@ -1,0 +1,26 @@
+# Gradle / Android
+.gradle/
+.kotlin/
+**/build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local secrets and machine-specific config
+.env
+.env.*
+!.env.example
+google-services.json
+**/google-services.json
+*.jks
+*.keystore
+debug.keystore
+service-account*.json
+*-debug.log
+
+# IDE / OS
+Thumbs.db
